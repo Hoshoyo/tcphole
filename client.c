@@ -200,8 +200,33 @@ int main() {
         if(connect(peer_socket, (struct sockaddr *)&peer_addr, sizeof(servaddr)) != 0) { 
             printf("connection with the peer failed: %s\n", strerror(errno));
         } else {
+            char msg[1024] = {0};
             printf("Connected to peer!\n");
-            break;
+            {
+                int sending = remote_info.index;
+                while(1) {
+                    if(sending == 0) {
+                        printf("You are client %d, say something: ", public_info.index);
+                        scanf("%s", msg);
+                        send(peer_socket, msg, strlen(msg), 0);
+                    } else {
+                        printf("You are client %d, waiting messages\n", public_info.index);
+                        recv(peer_socket, msg, 1024, 0);
+                        if(bytes == -1) {
+                            printf("Failed to receive data from server: %s\n", strerror(errno));
+                            return -1;
+                        } else if(bytes == 0) {
+                            printf("Server disconnected\n");
+                            return -1;
+                        } else {
+                            printf("Client %d: %s\n", remote_info.index, msg);
+                        }
+                    }
+                    sending = !sending;
+                    memset(msg, 0, 1024);
+                }
+            }
+
         }
         sleep(5);
     }
