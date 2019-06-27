@@ -1,5 +1,6 @@
 #include "common.h"
 #include <stdio.h>
+#include <signal.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -14,8 +15,8 @@
 #define BIG_ENDIAN_16(X) ((X >> 8) | ((X & 0xff) << 8))
 
 #define PORT 7777
-#define SERVER_IP "68.183.105.210"
-//#define SERVER_IP "127.0.0.1"
+//#define SERVER_IP "68.183.105.210"
+#define SERVER_IP "127.0.0.1"
 
 void print_ipv4(unsigned int ip) {
     printf("%d.%d.%d.%d", (ip & 0xff), ((ip & 0xff00) >> 8), ((ip & 0xff0000) >> 16), ((ip & 0xff000000) >> 24));
@@ -27,6 +28,25 @@ void print_port(unsigned short port) {
 void print_bytes(char* buffer, int length) {
     for(int i = 0; i < length; ++i) {
         printf("%d ", buffer[i]);
+    }
+}
+
+typedef struct {
+    int socket;
+    struct sockaddr_in addr;
+    int connect_index;
+    int id;
+} PeerSocketInfo;
+
+void* connect_handler(void* p) {
+    PeerSocketInfo* ps = (PeerSocketInfo*)p;
+    if(connect(ps->socket, (struct sockaddr *)&ps->addr, sizeof(struct sockaddr)) != 0) { 
+        printf("Connection with the peer failed(%d): %s\n", ps->id, strerror(errno));
+        return (void*)-1;
+    } else {
+        ps->connect_index = ps->id;
+        printf("Connected to peer (%d)!\n", ps->id);
+        return 0;
     }
 }
 
@@ -196,43 +216,44 @@ int main() {
     peer_addr.sin_addr.s_addr = remote_info.remote_ip.s_addr;
     peer_addr.sin_port = remote_info.remote_port;
 
-    while(1) {
-        if(connect(peer_socket, (struct sockaddr *)&peer_addr, sizeof(servaddr)) != 0) { 
-            printf("connection with the peer failed: %s\n", strerror(errno));
-        } else {
-            char msg[1024] = {0};
-            printf("Connected to peer!\n");
-            {
-                int sending = remote_info.index;
-                while(1) {
-                    if(sending == 0) {
-                        printf("You are client %d, say something: ", public_info.index);
-                        scanf("%s", msg);
-                        send(peer_socket, msg, strlen(msg), 0);
-                    } else {
-                        printf("You are client %d, waiting messages\n", public_info.index);
-                        recv(peer_socket, msg, 1024, 0);
-                        if(bytes == -1) {
-                            printf("Failed to receive data from server: %s\n", strerror(errno));
-                            return -1;
-                        } else if(bytes == 0) {
-                            printf("Server disconnected\n");
-                            return -1;
-                        } else {
-                            printf("Client %d: %s\n", remote_info.index, msg);
-                        }
-                    }
-                    sending = !sending;
-                    memset(msg, 0, 1024);
-                }
-            }
+    PeerSocketInfo peer_info = {0};
+    peer_info.addr = peer_addr;
+    peer_info.socket = peer_socket;
+    peer_info.connect_index = -1;
+    peer_info.id = 0;
 
+    pthread_t connect_thread0;
+    iret = pthread_create(&connect_thread0, NULL, connect_handler, (void*)&peer_info);
+    if(iret)
+    {
+        fprintf(stderr,"Error - pthread_create() return code: %d\n", iret);
+        return -1;
+    }
+
+    pthread_t connect_thread1;
+    peer_info.id = 1;
+    iret = pthread_create(&connect_thread1, NULL, connect_handler, (void*)&peer_info);
+    if(iret)
+    {
+        fprintf(stderr,"Error - pthread_create() return code: %d\n", iret);
+        return -1;
+    }
+
+    while(1) {
+        if(peer_info.connect_index != -1) {
+            if(peer_info.id == 0){
+                pthread_kill(connect_thread1, SIGKILL);
+            }
+            if(peer_info.id == 1) {
+                pthread_kill(connect_thread0, SIGKILL);
+            }
+            printf("Killed all other threads\n");
+            break;
         }
         sleep(5);
     }
 
-    // Wait listening thread
-    pthread_join(listen_thread, 0);
+    pthread_kill(listen_thread, SIGKILL);
 
     return 0;
 }

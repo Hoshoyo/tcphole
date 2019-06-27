@@ -20,6 +20,13 @@ typedef struct {
 static Connection clients[2];
 static pthread_t clients_thread[2];
 
+void print_ipv4(unsigned int ip) {
+    printf("%d.%d.%d.%d", (ip & 0xff), ((ip & 0xff00) >> 8), ((ip & 0xff0000) >> 16), ((ip & 0xff000000) >> 24));
+}
+void print_port(unsigned short port) {
+    printf("%d", (port >> 8) | ((port & 0xff) << 8));
+}
+
 void* handle_client(void* info) {
 	int index = (int)(unsigned long int)info;
 
@@ -33,6 +40,12 @@ void* handle_client(void* info) {
 	} else {
 		printf("%s\n", client_message);
 	}
+
+	printf("Remote: ");
+    print_ipv4(clients[index].client_info.sin_addr.s_addr);
+    printf(":");
+    print_port(clients[index].client_info.sin_port);
+    printf("\n");
 
 	{
         //Send the message back to client
@@ -118,7 +131,11 @@ int main(int argc, char** argv) {
 			info.remote_port = clients[1].client_info.sin_port;
 
 			if(send(clients[0].socket, &info, sizeof(info), 0) > 0) {
-				printf("Sent to client 0, client's 1 info\n");
+				printf("Sent to client 0, client's 1 info { ");
+				print_ipv4(info.remote_ip.s_addr);
+				printf(":");
+				print_port(info.remote_port);
+				printf(" }\n");
 			} else {
 				printf("Error sending data to client 0: %s\n", strerror(errno));
 			}
@@ -133,7 +150,11 @@ int main(int argc, char** argv) {
 			info.remote_port = clients[0].client_info.sin_port;
 
 			if(send(clients[1].socket, &info, sizeof(info), 0) > 0) {
-				printf("Sent to client 1, client's 0 info\n");
+				printf("Sent to client 1, client's 0 info { ");
+				print_ipv4(info.remote_ip.s_addr);
+				printf(":");
+				print_port(info.remote_port);
+				printf(" }\n");
 			} else {
 				printf("Error sending data to client 0: %s\n", strerror(errno));
 			}
