@@ -15,8 +15,8 @@
 #define BIG_ENDIAN_16(X) ((X >> 8) | ((X & 0xff) << 8))
 
 #define PORT 7777
-//#define SERVER_IP "68.183.105.210"
-#define SERVER_IP "127.0.0.1"
+#define SERVER_IP "68.183.105.210"
+//#define SERVER_IP "127.0.0.1"
 
 void print_ipv4(unsigned int ip) {
     printf("%d.%d.%d.%d", (ip & 0xff), ((ip & 0xff00) >> 8), ((ip & 0xff0000) >> 16), ((ip & 0xff000000) >> 24));
@@ -47,6 +47,27 @@ void* connect_handler(void* p) {
         ps->connect_index = ps->id;
         printf("Connected to peer (%d)!\n", ps->id);
         return 0;
+    }
+}
+
+void* receive_handler(void* p) {
+    char buffer[2048] = {0};
+    PeerSocketInfo* ps = (PeerSocketInfo*)p;
+    printf("Started receive thread\n");
+    fflush(stdout);
+    while(1) {
+        int bytes = recv(ps->socket, buffer, 2048, 0);
+        if(bytes == -1) {
+            printf("Failed to receive data from server: %s\n", strerror(errno));
+            return 0;
+        } else if(bytes == 0) {
+            printf("Server disconnected\n");
+            return 0;
+        } else {
+            printf("%s", buffer);
+            fflush(stdout);
+            memset(buffer, 0, 2048);
+        }
     }
 }
 
@@ -253,6 +274,32 @@ int main() {
         sleep(5);
     }
 
+    // Receive thread
+    pthread_t receive_thread;
+    iret = pthread_create(&receive_thread, NULL, receive_handler, (void*)&peer_info);
+    if(iret)
+    {
+        fprintf(stderr,"Error - pthread_create() return code: %d\n", iret);
+        return -1;
+    }
+
+    char* msg = calloc(0, 256);
+    size_t len = 0;
+    while(1) {
+        printf(">");
+        getline(&msg, &len, stdin);
+        if(send(peer_socket, msg, strlen(msg), MSG_DONTWAIT) == -1) {
+            printf("failed to send data to server: %s\n", strerror(errno));
+            break;
+        }
+        memset(msg, 0, 256);
+    }
+
+    if(peer_info.id == 0) {
+        pthread_join(connect_thread0, 0);
+    } else if(peer_info.id == 1) {
+        pthread_join(connect_thread1, 0);
+    }
     pthread_kill(listen_thread, SIGKILL);
 
     return 0;
