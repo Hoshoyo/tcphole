@@ -251,6 +251,8 @@ int main() {
         return -1;
     }
 
+    sleep(5);
+
     pthread_t connect_thread1;
     peer_info.id = 1;
     iret = pthread_create(&connect_thread1, NULL, connect_handler, (void*)&peer_info);
