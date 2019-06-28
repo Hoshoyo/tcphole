@@ -1,4 +1,5 @@
 #include "common.h"
+#include <fcntl.h>
 #include <stdio.h>
 #include <signal.h>
 #include <string.h>
@@ -58,13 +59,13 @@ void* receive_handler(void* p) {
     while(1) {
         int bytes = recv(ps->socket, buffer, 2048, 0);
         if(bytes == -1) {
-            printf("Failed to receive data from server: %s\n", strerror(errno));
+            printf("\rFailed to receive data from server: %s\n", strerror(errno));
             return 0;
         } else if(bytes == 0) {
-            printf("Server disconnected\n");
+            printf("\rServer disconnected\n");
             return 0;
         } else {
-            printf("%s", buffer);
+            printf("\r%s", buffer);
             fflush(stdout);
             memset(buffer, 0, 2048);
         }
@@ -222,6 +223,10 @@ int main() {
         printf("setsockopt(SO_REUSEADDR) failed");
         return -1;
     }
+    int flags = fcntl(peer_socket,  F_GETFL, 0);
+    if(fcntl(peer_socket, F_SETFL, O_NONBLOCK) != 0) {
+        printf("Could not set peer socket to non blocking: %s\n", strerror(errno));
+    }
 
     struct sockaddr_in dummy = {0};
     dummy.sin_family = AF_INET;
@@ -243,37 +248,24 @@ int main() {
     peer_info.connect_index = -1;
     peer_info.id = 0;
 
-    pthread_t connect_thread0;
-    iret = pthread_create(&connect_thread0, NULL, connect_handler, (void*)&peer_info);
-    if(iret)
-    {
-        fprintf(stderr,"Error - pthread_create() return code: %d\n", iret);
-        return -1;
-    }
-
-    sleep(5);
-
-    pthread_t connect_thread1;
-    peer_info.id = 1;
-    iret = pthread_create(&connect_thread1, NULL, connect_handler, (void*)&peer_info);
-    if(iret)
-    {
-        fprintf(stderr,"Error - pthread_create() return code: %d\n", iret);
-        return -1;
-    }
-
     while(1) {
-        if(peer_info.connect_index != -1) {
-            if(peer_info.id == 0){
-                pthread_kill(connect_thread1, SIGKILL);
+        int status = connect(peer_info.socket, (struct sockaddr *)&peer_info.addr, sizeof(struct sockaddr));
+        if(status != 0) { 
+            if (errno == EALREADY || errno == EAGAIN || errno == EINPROGRESS) {
+                continue;
+            } else if(errno == EISCONN) {
+                break;
+            } else {
+                printf("Connection with the peer failed(%d): %s\n", errno, strerror(errno));
+                sleep(5);
+                continue;
+                //return -1;
             }
-            if(peer_info.id == 1) {
-                pthread_kill(connect_thread0, SIGKILL);
-            }
-            printf("Killed all other threads\n");
+        } else {
+            peer_info.connect_index = peer_info.id;
+            printf("Connected to peer (%d)!\n", peer_info.id);
             break;
         }
-        sleep(5);
     }
 
     // Receive thread
@@ -297,12 +289,7 @@ int main() {
         memset(msg, 0, 256);
     }
 
-    if(peer_info.id == 0) {
-        pthread_join(connect_thread0, 0);
-    } else if(peer_info.id == 1) {
-        pthread_join(connect_thread1, 0);
-    }
-    pthread_kill(listen_thread, SIGKILL);
+    pthread_join(receive_thread, 0);
 
     return 0;
 }
