@@ -39,6 +39,8 @@ typedef struct {
     int id;
 } PeerSocketInfo;
 
+static int global_connected;
+
 void* connect_handler(void* p) {
     PeerSocketInfo* ps = (PeerSocketInfo*)p;
     if(connect(ps->socket, (struct sockaddr *)&ps->addr, sizeof(struct sockaddr)) != 0) { 
@@ -54,13 +56,12 @@ void* connect_handler(void* p) {
 void* receive_handler(void* p) {
     char buffer[2048] = {0};
     PeerSocketInfo* ps = (PeerSocketInfo*)p;
-    printf("Started receive thread\n");
+    printf("Started receive thread %d\n", ps->socket);
     fflush(stdout);
     while(1) {
         int bytes = recv(ps->socket, buffer, 2048, 0);
         if(bytes == -1) {
             printf("\rFailed to receive data from server: %s\n", strerror(errno));
-            return 0;
         } else if(bytes == 0) {
             printf("\rServer disconnected\n");
             return 0;
@@ -122,9 +123,22 @@ void* client_listen(void* p) {
             printf(":");
             print_port(peer_info.sin_port);
             printf("\n");
+            global_connected = peer;
             break;
         }
         sleep(5);
+    }
+
+    char* msg = calloc(0, 256);
+    size_t len = 0;
+    while(1) {
+        printf(">");
+        getline(&msg, &len, stdin);
+        if(send(peer, msg, strlen(msg), 0) == -1) {
+            printf("failed to send data to server: %s\n", strerror(errno));
+            break;
+        }
+        memset(msg, 0, 256);
     }
 }
 
@@ -248,7 +262,7 @@ int main() {
     peer_info.connect_index = -1;
     peer_info.id = 0;
 
-    while(1) {
+    while(!global_connected) {
         int status = connect(peer_info.socket, (struct sockaddr *)&peer_info.addr, sizeof(struct sockaddr));
         if(status != 0) { 
             if (errno == EALREADY || errno == EAGAIN || errno == EINPROGRESS) {
@@ -268,6 +282,16 @@ int main() {
         }
     }
 
+    if(global_connected) {
+        pthread_join(listen_thread, 0);
+    }
+
+    flags = fcntl(peer_socket,  F_GETFL, 0);
+    flags &= ~(O_NONBLOCK);
+    if(fcntl(peer_socket, F_SETFL, flags) != 0) {
+        printf("Could not set peer socket to non blocking: %s\n", strerror(errno));
+    }
+
     // Receive thread
     pthread_t receive_thread;
     iret = pthread_create(&receive_thread, NULL, receive_handler, (void*)&peer_info);
@@ -279,12 +303,14 @@ int main() {
 
     char* msg = calloc(0, 256);
     size_t len = 0;
+    printf("Send data to peer:\n");
     while(1) {
-        printf(">");
         getline(&msg, &len, stdin);
-        if(send(peer_socket, msg, strlen(msg), MSG_DONTWAIT) == -1) {
+        if(send(peer_socket, msg, strlen(msg), 0) == -1) {
             printf("failed to send data to server: %s\n", strerror(errno));
             break;
+        } else {
+            //printf("sent!\n");
         }
         memset(msg, 0, 256);
     }
