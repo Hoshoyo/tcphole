@@ -12,11 +12,11 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <errno.h>
+#include <netdb.h>
 
 #define BIG_ENDIAN_16(X) ((X >> 8) | ((X & 0xff) << 8))
 
 #define PORT 7777
-#define SERVER_IP "68.183.105.210"
 //#define SERVER_IP "127.0.0.1"
 
 void print_ipv4(unsigned int ip) {
@@ -142,7 +142,13 @@ void* client_listen(void* p) {
     }
 }
 
-int main() { 
+int main(int argc, char** argv) { 
+
+    if(argc < 2) {
+        printf("usage: %s <server ip>\n", argv[0]);
+        return 1;
+    }
+
     int sockfd, connfd; 
     struct sockaddr_in servaddr = {0};
     struct sockaddr_in cli = {0};
@@ -165,7 +171,7 @@ int main() {
 
     // Assign server IP, PORT 
     servaddr.sin_family = AF_INET; 
-    servaddr.sin_addr.s_addr = inet_addr(SERVER_IP);
+    servaddr.sin_addr.s_addr = inet_addr(argv[1]);
     servaddr.sin_port = htons(PORT); 
 
     // connect the client socket to server socket 
